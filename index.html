@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Movie Library</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1020;--panel:#151d32;--muted:#aab5cc;--accent:#7c8cff;--line:#293653}
+*{box-sizing:border-box}body{margin:0;font-family:Arial,Helvetica,sans-serif;background:linear-gradient(135deg,#0b1020,#17152c);color:#f5f7ff;min-height:100vh}
+header{padding:30px 20px 20px;text-align:center}h1{margin:0 0 8px;font-size:clamp(28px,5vw,42px)}header p{margin:0;color:var(--muted)}
+main{width:min(1100px,94%);margin:0 auto 50px}.panel{background:rgba(21,29,50,.94);border:1px solid var(--line);border-radius:18px;padding:20px;margin:18px 0;box-shadow:0 12px 35px #0004}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:15px}.stat{background:#0d1528;border:1px solid var(--line);padding:12px 15px;border-radius:12px;min-width:145px}.stat strong{display:block;font-size:20px;margin-bottom:3px}.muted,small{color:var(--muted)}
+button,.file-label{border:0;border-radius:10px;padding:11px 16px;background:var(--accent);color:white;font-weight:700;cursor:pointer;font-size:14px}.secondary{background:#273653}.danger{background:#a83d57}.file-label input{display:none}button:disabled{opacity:.5;cursor:not-allowed}
+input[type=text]{background:#0d1528;border:1px solid var(--line);border-radius:10px;padding:12px;color:white;min-width:180px;flex:1}
+#notice{margin-top:12px;color:#ffd78a;line-height:1.5}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:16px;margin-top:18px}
+.movie{background:#0d1528;border:1px solid var(--line);border-radius:14px;overflow:hidden}.movie video{width:100%;aspect-ratio:16/9;background:#05070c;display:block}.movie-info{padding:13px}.movie-title{font-weight:700;overflow-wrap:anywhere;margin-bottom:6px}.movie-meta{font-size:12px;color:var(--muted);margin-bottom:12px}.movie-actions{display:flex;gap:8px}.movie-actions button{flex:1;padding:9px 8px}
+.empty{border:1px dashed #405071;border-radius:14px;padding:35px;text-align:center;color:var(--muted);grid-column:1/-1}
+footer{text-align:center;color:var(--muted);font-size:12px;padding:0 15px 30px;line-height:1.6}
+progress{width:100%;height:9px;accent-color:var(--accent);margin-top:12px}
+@media(max-width:560px){.panel{padding:15px}.stats{display:grid;grid-template-columns:1fr 1fr}.stat{min-width:0}}
+</style>
+</head>
+<body>
+<header><h1>🎬 My Movie Library</h1><p>Your personal movie collection</p></header>
+<main>
+<section class="panel">
+  <h2>Upload movies</h2>
+  <p class="muted">Add up to 5 video files. Your browser stores them on this device using IndexedDB.</p>
+  <div class="row">
+    <label class="file-label">Choose movie files <input id="picker" type="file" accept="video/*" multiple></label>
+    <button class="secondary" id="shareBtn">Share website link</button>
+  </div>
+  <div id="notice" role="status">Ready. Choose video files to begin.</div>
+  <progress id="progress" max="100" value="0" hidden></progress>
+  <div class="stats">
+    <div class="stat"><strong id="movieCount">0 / 5</strong><small>Movies saved</small></div>
+    <div class="stat"><strong id="usedSpace">0 GB</strong><small>Storage used (15 GB limit)</small></div>
+  </div>
+</section>
+<section class="panel">
+  <div class="row"><h2 style="margin:0">Saved movies</h2><span class="muted" id="storageNote"></span></div>
+  <div class="grid" id="movies"><div class="empty">No movies yet. Upload your first video above.</div></div>
+</section>
+<section class="panel">
+  <h3>Important storage information</h3>
+  <p class="muted">Movies are saved in this browser on this device. They remain after closing and reopening the site, but they are not uploaded to an online server. Clearing browser data, using another browser/device, or running out of device storage can remove or prevent saving them. The 15 GB figure is an app limit; your browser/device may allow less.</p>
+  <p class="muted">Sharing this website link shares the page only—not the movie files. To let other people watch, you need private cloud video storage and a server/login system.</p>
+</section>
+</main>
+<footer>Use this library only for videos you own or have permission to store and share. Keep a separate backup of important files.</footer>
+<script>
+const DB_NAME='MyMovieLibraryDB', STORE='movies', MAX_MOVIES=5, MAX_BYTES=15*1024*1024*1024;
+let db, objectUrls=[];
+const $=id=>document.getElementById(id);
+function openDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open(DB_NAME,1);req.onupgradeneeded=()=>{const d=req.result;if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id',autoIncrement:true});};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
+function allMovies(){return new Promise((resolve,reject)=>{const r=db.transaction(STORE,'readonly').objectStore(STORE).getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
+function addMovie(movie){return new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).add(movie);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}
+function removeMovie(id){return new Promise((resolve,reject)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).delete(id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});}
+function fmt(bytes){if(!bytes)return '0 GB';return (bytes/1024**3).toFixed(2)+' GB';}
+function safeName(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function render(){
+  const items=await allMovies();objectUrls.forEach(URL.revokeObjectURL);objectUrls=[];
+  $('movieCount').textContent=items.length+' / '+MAX_MOVIES;
+  const total=items.reduce((n,m)=>n+m.size,0);$('usedSpace').textContent=fmt(total);
+  const root=$('movies');root.innerHTML='';
+  if(!items.length){root.innerHTML='<div class="empty">No movies yet. Upload your first video above.</div>';return;}
+  items.sort((a,b)=>a.added-b.added);
+  for(const m of items){
+    const url=URL.createObjectURL(m.blob);objectUrls.push(url);
+    const card=document.createElement('article');card.className='movie';
+    const video=document.createElement('video');video.controls=true;video.preload='metadata';video.src=url;
+    const info=document.createElement('div');info.className='movie-info';
+    const title=document.createElement('div');title.className='movie-title';title.textContent=m.name;
+    const meta=document.createElement('div');meta.className='movie-meta';meta.textContent=fmt(m.size)+' · '+new Date(m.added).toLocaleDateString();
+    const actions=document.createElement('div');actions.className='movie-actions';
+    const download=document.createElement('button');download.className='secondary';download.textContent='Download';download.onclick=()=>{const a=document.createElement('a');a.href=url;a.download=m.name;a.click();};
+    const del=document.createElement('button');del.className='danger';del.textContent='Delete';del.onclick=async()=>{if(confirm('Delete "'+m.name+'"?')){await removeMovie(m.id);$('notice').textContent='Movie deleted.';render();}};
+    actions.append(download,del);info.append(title,meta,actions);card.append(video,info);root.append(card);
+  }
+}
+$('picker').addEventListener('change',async e=>{
+  const files=[...e.target.files];e.target.value='';if(!files.length)return;
+  $('progress').hidden=false;$('progress').value=0;
+  try{
+    let items=await allMovies(), used=items.reduce((n,m)=>n+m.size,0);
+    if(items.length+files.length>MAX_MOVIES)throw Error('You can save a maximum of 5 movies. Delete a movie first.');
+    const incoming=files.reduce((n,f)=>n+f.size,0);
+    if(used+incoming>MAX_BYTES)throw Error('The 15 GB library limit would be exceeded.');
+    for(let i=0;i<files.length;i++){
+      const f=files[i];if(!f.type.startsWith('video/'))throw Error(f.name+' is not recognized as a video file.');
+      $('notice').textContent='Saving '+f.name+'… This may take a while for large files.';
+      await addMovie({name:f.name,size:f.size,type:f.type,added:Date.now(),blob:f});
+      $('progress').value=Math.round((i+1)/files.length*100);
+    }
+    $('notice').textContent='Upload saved in this browser.';await render();
+  }catch(err){$('notice').textContent=err.message||'Could not save the file. Your browser may not have enough storage space.';}
+  finally{$('progress').hidden=true;}
+});
+$('shareBtn').addEventListener('click',async()=>{
+  const url=location.href;
+  try{if(navigator.share)await navigator.share({title:'My Movie Library',url});else{await navigator.clipboard.writeText(url);$('notice').textContent='Website link copied. Note: this shares the page only, not locally saved movies.';}}
+  catch(e){if(e.name!=='AbortError')$('notice').textContent='Copy this website address from your browser address bar to share it.';}
+});
+(async()=>{try{db=await openDB();await render();$('storageNote').textContent='Saved on this device';}catch(e){$('notice').textContent='Your browser could not open local storage. Try a current version of Chrome or Edge.';}})();
+</script>
+</body>
+</html>
